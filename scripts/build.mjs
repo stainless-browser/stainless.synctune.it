@@ -45,8 +45,8 @@ export function layout({ path, title, description, body, base = relativeUrl(path
   const short = record.commit.slice(0, 7);
   const href = (target) => (base === "/" ? `/${target}` : relativeUrl(path, target));
   const items = navigation.map((item) => {
-    const current = item.current ? item.current(path) : path === item.path;
-    return `<li><a href="${href(item.path)}"${current ? ' aria-current="page"' : ""}>${item.label}</a></li>`;
+    const current = path === item.path ? ' aria-current="page"' : item.current?.(path) ? ' aria-current="true"' : "";
+    return `<li><a href="${href(item.path)}"${current}>${item.label}</a></li>`;
   });
   items.push(`<li><a href="${upstream.url}">GitHub</a></li>`);
   const pageTitle = path === "" ? `${site.name}: a Chromium browser without Google services` : `${title} | ${site.name}`;

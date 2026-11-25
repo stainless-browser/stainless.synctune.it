@@ -24,6 +24,10 @@ test("code spans keep emphasis, links and underscores literal", () => {
   assert.equal(html("Run `a_b *c* [d](e)` and snake_case_name, *em* and **strong**."), "<p>Run <code>a_b *c* [d](e)</code> and snake_case_name, <em>em</em> and <strong>strong</strong>.</p>");
 });
 
+test("two trailing spaces or a backslash make a hard line break", () => {
+  assert.equal(html("one  \ntwo\\\nthree \nfour   "), "<p>one<br>\ntwo<br>\nthree\nfour</p>");
+});
+
 test("tight and loose lists follow CommonMark", () => {
   assert.equal(html("- one\n- two\n  - nested"), "<ul>\n<li>one</li>\n<li>two\n<ul>\n<li>nested</li>\n</ul></li>\n</ul>");
   assert.equal(html("1. one\n\n2. two"), "<ol>\n<li><p>one</p></li>\n<li><p>two</p></li>\n</ol>");

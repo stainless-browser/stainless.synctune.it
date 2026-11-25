@@ -210,7 +210,7 @@ function parseBlocks(lines) {
       paragraph.push(lines[index]);
       index += 1;
     }
-    push({ type: "paragraph", text: paragraph.map((text) => text.trim()).join("\n") });
+    push({ type: "paragraph", text: paragraph.map((text) => text.trimStart()).join("\n").trimEnd() });
   }
   return blocks;
 }
@@ -295,7 +295,7 @@ export function renderInline(source, options) {
   });
   text = text.replace(/\\([!-/:-@[-`{-~])/g, (_, char) => hold(escapeHtml(char)));
   text = text.replace(/\\\n/g, () => hold("<br>\n"));
-  text = text.replace(/ {2,}\n/g, () => hold("<br>\n"));
+  text = text.replace(/ {2,}\n/g, () => hold("<br>\n")).replace(/[ \t]+\n/g, "\n");
   text = text.replace(/<((?:https?|mailto):[^\s<>]+)>/g, (_, url) => hold(options.link(url, escapeHtml(url), null, {})));
 
   let output = "";

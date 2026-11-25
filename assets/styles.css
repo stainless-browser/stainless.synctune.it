@@ -189,7 +189,7 @@ h4 {
 }
 
 .site-nav a:hover,
-.site-nav a[aria-current="page"] {
+.site-nav a[aria-current] {
   color: var(--accent-text);
   text-decoration: underline;
 }

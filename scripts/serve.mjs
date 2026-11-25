@@ -11,7 +11,13 @@ const port = Number(process.argv[2] ?? 8080);
 const types = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".png": "image/png", ".webp": "image/webp", ".xml": "application/xml", ".txt": "text/plain; charset=utf-8" };
 
 async function resolve(pathname) {
-  const path = normalize(join(root, decodeURIComponent(pathname)));
+  let decoded;
+  try {
+    decoded = decodeURIComponent(pathname);
+  } catch {
+    return null;
+  }
+  const path = normalize(join(root, decoded));
   if (!path.startsWith(root)) return null;
   const info = await stat(path).catch(() => null);
   if (info?.isFile()) return path;
@@ -20,15 +26,21 @@ async function resolve(pathname) {
 }
 
 createServer(async (request, response) => {
-  const { pathname } = new URL(request.url, "http://localhost");
-  const found = await resolve(pathname);
-  if (found?.redirect) {
-    response.writeHead(301, { Location: found.redirect }).end();
-    return;
+  try {
+    const { pathname } = new URL(request.url, "http://localhost");
+    const found = await resolve(pathname);
+    if (found?.redirect) {
+      response.writeHead(301, { Location: found.redirect }).end();
+      return;
+    }
+    const file = found ?? join(root, "404.html");
+    response.writeHead(found ? 200 : 404, { "Content-Type": types[extname(file)] ?? "application/octet-stream" });
+    createReadStream(file).on("error", () => response.end()).pipe(response);
+  } catch (error) {
+    console.error(`Preview server error for ${request.url}: ${error.message}`);
+    if (!response.headersSent) response.writeHead(500);
+    response.end();
   }
-  const file = found ?? join(root, "404.html");
-  response.writeHead(found ? 200 : 404, { "Content-Type": types[extname(file)] ?? "application/octet-stream" });
-  createReadStream(file).on("error", () => response.end()).pipe(response);
 })
   .on("error", (error) => {
     console.error(error.code === "EADDRINUSE" ? `Port ${port} is in use. Pass another port: node scripts/serve.mjs 8081` : `Preview server failed: ${error.message}`);
