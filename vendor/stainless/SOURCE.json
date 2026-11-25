@@ -1,0 +1,37 @@
+{
+  "repository": "stainless-browser/stainless",
+  "ref": "main",
+  "commit": "618cace85511612d99996d17ca6d614a93b8ae02",
+  "committedAt": "2026-11-25T20:15:54+01:00",
+  "version": "0.1.0-preview.10",
+  "documents": {
+    "docs/README.md": "586bbd18d52f4d22c7129686d27e117964bcc60ce33b1b80740e0f0e5e37cc4f",
+    "docs/status.md": "d95d5f294ca6ea3efdf1c6beae8bf23237c1584ffb00eeadc1dddf44eec14980",
+    "docs/install-macos.md": "3c9859c5dc0919c9d3ab519b409ae1a0b03e970bf63cc239f8de0d07c0e3e10a",
+    "docs/degoogling.md": "8cd7d1b4c1f24e1061cd92a0f93027fbb3c1182f590eca813aa25a24189725ac",
+    "docs/threat-protection.md": "5da516a12d72c593ccb489f9d29aded4bf17a5dd8a24ff78d4b201b9abceca00",
+    "docs/profile-isolation.md": "5812529b80aea369a6ece5597e8d824013f8b0ed0eeaa9947c3cb3b55ca76f01",
+    "docs/history-privacy.md": "53c0cb59de50c7e23e38c25b0d7f5d97126aa3d0b61721a4840da21ac0433472",
+    "docs/internal-urls.md": "a40ebb5ce631cb0087bb3c5097c8674c6319a84e7ed403300740380facd0a368",
+    "docs/resource-overview.md": "f8db433481ad798e849464bb1f292004240f81579c894143c05ab4d4474faeef",
+    "docs/keymaps.md": "7442ce63e7b687d5e6f5d0ddedd3b802ad2d5401b21c75aa06395e996bb1cab2",
+    "docs/web-push-self-hosting.md": "7913d0caab9cca2f41e7ae49843851845b8a5070d7f5a00809d21eca9444e34b",
+    "CONTRIBUTING.md": "f8a96582e55127741428b559b32c0d2ec54907e63b804376819f22ffc1334eda",
+    "docs/build-macos.md": "dcb7ec6fa5d2aeaa8fc275c7fb6db6a40454658b4ddba709df4c1102a53fa710",
+    "docs/compile-cache.md": "209267a4ba5cfe662ffcce39bc2d42d07d7a41c43b6fd18b7921a6e14d4cdcb6",
+    "docs/local-services.md": "9d6f9e98213a813dcb74c7f4f29e924838c85e11a10d093195de9785fdedd900",
+    "docs/phase-one.md": "adc2e22697c9dc7ff47d91deea197e7ca69f81a8c184edb637d38df05b542a1e",
+    "docs/update-verification.md": "ae0324b739516912d044498548712077d5b8547ee23b6148c971c506bc34b5be",
+    "docs/releasing.md": "92bbc5fe46f2d92aaa78785b826220b24ce6e583fa8726923ca1fef36146178c",
+    "docs/roadmap.md": "17c768690dfa154d2bfe00a98cb8ceee7bc3b620cac3ac924981cbe71e0d7b08",
+    "docs/decisions-q-and-a.md": "17667e2c6ba3145f8f01340248bc910b263c0803155436afda75782978a7003f",
+    "SECURITY.md": "b5593cd410a2c0c1c6e32fa8c0f1c8040993e66170a0547d747d60bf0cafeb6c",
+    "ACCESSIBILITY.md": "768a2d507edecf9a8e4b6150481fcb64200f7bae2088bc28e6f42bd21bbb62d7",
+    "CODE_OF_CONDUCT.md": "8a6e61c1bdc2a11d3452d4b3c376287d39731f4686a898666ef001c8e26da03b",
+    "LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+  },
+  "branding": {
+    "chromium/branding/stainless-icon.png": "02f09314c481d3c00a64eea093480856ef54c69080b29747fd0e9f133a8b068f",
+    "chromium/branding/stainless-logo.png": "72b3811c9ef5a9c140ee550ca6150b6de491f0487ab0de214e24d9d2771e5916"
+  }
+}

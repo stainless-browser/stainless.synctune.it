@@ -1,0 +1,994 @@
+# Building on Apple Silicon macOS
+
+The local coordinator builds Chromium's full `chrome` target. It does not download and
+rebrand an existing browser, use Electron, or substitute a system WebView.
+
+**Status:** the published preview baseline built and passed isolated browser smoke checks on
+Apple Silicon macOS 26.6 with Xcode/SDK 27.2 and the Metal Toolchain 27B47.
+The unsigned DMG/ZIP/feed are published as private preview candidates. DMG install/eject
+and packaged browsing pass locally; clean-Mac and automatic-update gates remain open.
+Full Xcode is a build prerequisite, not an end-user dependency.
+The sixth-patch mode/settings changes and native managed-profile chooser/recovery now build
+locally in **preview.5**. Actual isolated-browser smoke covers the removed settings and managed
+Incognito; native chooser/recovery checks remain offscreen synthetic evidence, not installed
+native-workflow verification. This explicitly requested Chromium 158 candidate is experimental,
+not a published preview or a passing Mac Stable provenance check for that preserved
+158.0.8127.18 candidate. The current source pin's separate evidence is recorded under
+[Maintaining Chromium](#maintaining-chromium).
+
+Current source targets **0.1.0-preview.8, build 8**, adding experimental opt-in
+native Web Push and Local Services settings to the resource overview, saved-history
+restrictions and local Profiles roster. Browser verification is still in progress;
+no preview.8 installer, publication or installed update is implied. Earlier
+preview.7 candidates and their evidence are preserved.
+
+Current source also has [Stainless internal addresses and an icon-only updater](internal-urls.md),
+verified against the modified browser and offscreen native controls. This does
+not produce or install another preview candidate.
+
+## Native macOS GUI-test isolation
+
+**Do not run `stainless_command_palette_tests`, `stainless_local_resource_tests`
+or other native GUI tests on the user's active interactive desktop.** These
+browser tests create real Cocoa windows. Palette, shortcut and resource-view
+paths call `Widget::Activate()` and can become frontmost, receive the user's
+typing, beep or open system input UI.
+
+`CHROME_HEADLESS=1` suppresses crash dialogs; it does not isolate WindowServer,
+focus or keyboard input. Neither `--headless=new`, a virtual-display assertion,
+background application behavior, a disposable HOME nor mock Keychain establishes
+desktop-input isolation. The same precaution applies to aggregate commands that
+launch AppKit GUI helpers: `./tools/stainless test`, `package`, and also `build`,
+which finishes by running the updater's offscreen Swift branding, token-template and
+managed-profile checks.
+
+Use a **dedicated macOS test VM or separate test host**, with its own logged-in
+GUI environment and no personal keyboard input forwarded into it. Close any VM
+or remote-desktop viewer that forwards the developer's typing before the run.
+A separate macOS user is acceptable only after verifying that the test processes
+run in a distinct Aqua/login session, not the user's active desktop. Changing
+HOME, `sudo -u`, SSH into the same active session, or launching in the background
+does not establish that separation. Check the actual execution destination
+before launching; keep fixture profiles, mock Keychain and hardware-audio
+restrictions inside that environment too.
+
+Keep the real activation, focus, keyboard, accessibility and lifecycle checks
+intact there. Do not stub `Widget::Activate()`, swallow desktop keystrokes or
+disable meaningful assertions to make a local run appear safe. Stop the owned
+test processes afterward and verify that none remain. **If no verified isolated
+environment is available, GUI verification is blocked, not passed or replaced
+by another run on the interactive Mac.** Compilation and static checks that do
+not launch GUI processes can continue.
+
+The checked-in [source/native CI](../.github/workflows/ci.yml) runs its AppKit
+helper checks on GitHub's separate `macos-26` runner, not the developer's desktop.
+It does not build or run the full Chromium browser-test targets; a green CI job
+cannot substitute for their still-required isolated execution.
+
+Earlier runs described below as headless or offscreen were not demonstrated to
+be desktop-input isolated. Those labels describe test configuration or rendering,
+not a safety guarantee. Their historical functional results do not prove that
+the windows never activated or that captures contain only fictional input.
+Treat unisolated fixture profiles and logs as potentially sensitive.
+
+## Requirements
+
+| Requirement | Baseline |
+| --- | --- |
+| Build host | Apple Silicon Mac with an APFS source/cache volume |
+| Xcode | Full Xcode 26.6 or newer, license accepted |
+| macOS SDK | 26.5 or newer; record the actual SDK in every build manifest |
+| Metal compiler | Xcode's optional Metal Toolchain component, required by ANGLE's Metal shaders |
+| Memory | At least 16 GiB; 32 GiB or more recommended |
+| Disk | At least 100 GiB free before fetching; reserve 300 GiB or more for sources, outputs, packages and backups |
+| Initial tools | Git, curl, a working Apple developer-tool selection |
+| Coordinator | Rust 1.99.1; the entry point downloads a locally installed, SHA-256-pinned toolchain if needed |
+| Runtime target | arm64 macOS 13.0+, inherited from the pinned Chromium baseline; this is not yet a tested support matrix |
+
+Chromium uses `xcodebuild` and tools/resources from the full Apple developer distribution.
+Command Line Tools are sufficient to compile the Rust coordinator/native updater UI, but are
+not the supported full-browser build environment. The Xcode editor, a paid Apple account,
+Developer ID signing and notarization are not required.
+
+When Command Line Tools are selected but `/Applications/Xcode.app` exists, the coordinator
+automatically uses that app's developer directory for its child processes. An explicit
+`DEVELOPER_DIR` or a different full Xcode selection takes precedence. It never changes
+the machine-wide selection.
+
+Select a different existing Xcode for this shell:
+
+```sh
+export DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer"
+./tools/stainless doctor
+```
+
+If Xcode reports that `metal` is missing, restore the official component for that
+selected Xcode and rerun diagnostics:
+
+```sh
+DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer" \
+  xcodebuild -downloadComponent MetalToolchain
+./tools/stainless doctor
+```
+
+This compiler is a build-host dependency; installed browsing does not need it.
+
+Install Xcode and accept its license before running bootstrap. The coordinator never installs
+Xcode, invokes `sudo`, accepts Apple license terms, or changes your system-wide developer directory.
+The generated `.gclient` suppresses Chromium's `mac_toolchain` installer hook; other hooks
+still run with the selected existing Xcode. Only the exact previous generated configuration
+is upgraded automatically; user-edited checkout configurations are preserved and reported.
+
+## Local commands
+
+```sh
+./tools/stainless doctor
+./tools/stainless bootstrap --jobs 8
+./tools/stainless compile --jobs 8   # browser only, no AppKit checks
+./tools/stainless build --jobs 8
+./tools/stainless test
+./tools/stainless package
+```
+
+`bootstrap` verifies the host, fetches the pinned `depot_tools` and Chromium revisions,
+syncs Chromium's DEPS without running hooks, and applies the complete downstream patch stack.
+It initializes the pinned tool programs with `ensure_bootstrap` without updating their Git
+checkout, and verifies the Python shim needed by GN/Ninja. Credits generation uses that same
+pinned interpreter rather than assuming a `depot_tools/python3` executable exists.
+`build` runs Chromium's hooks, generates GN files and builds `chrome` and matching `chromedriver`,
+then compiles the Rust updater and native Swift menu. Eight jobs are the default to avoid
+occupying every core on a shared Mac. `--jobs` accepts 1 through 64.
+`compile` stops after the browser, ChromeDriver and local-service staging: it skips the
+updater, its AppKit checks and the build manifest, so its output cannot be packaged until a
+full `build`. Use it to iterate on the developer desktop. Setting `STAINLESS_REAPI_ADDRESS`
+switches `compile`/`build` to the opt-in [compile cache](compile-cache.md) in
+`out/StainlessCache`; `package` never uses it.
+
+Rust 1.99.1 delegates Darwin release stripping to `rust-objcopy`, which aborts
+with a warning on this build's Mach-O output. Cargo's release profile leaves
+stripping to `tools/xtask/macos/strip_rust.sh` instead. The full browser build and
+CI both use Apple's selected `xcrun strip -S -x`, then ad-hoc re-sign and strictly
+verify an isolated copy before atomically replacing the executable. Invalid
+inputs/failures preserve the original; artifact mtimes remain stable for Cargo.
+No warnings are suppressed and debug-profile behavior is unchanged.
+
+`test` runs the Rust profile-ownership/migration, protocol, bundled-runtime, archive, installer and recovery
+fixtures, compiles the native UI and exercises the offscreen AppKit chooser. The profile fixtures
+use owned synthetic browser processes and an isolated HOME, without developer tools on PATH.
+The native checks cover metadata/create/launch/recovery transport, bundled-helper selection,
+lifecycle, error reporting and keyboard control order. An offscreen render or isolated
+HOME does not prove that an AppKit process cannot activate or receive desktop input;
+run GUI helpers under the [isolation requirement](#native-macos-gui-test-isolation).
+They also run AppKit recovery controls against the actual production Rust helper in an empty
+synthetic HOME without developer tools on PATH: live start acknowledgement, cold admission
+after normal fixture-browser exit, verified backup, new-identity restore, original preservation
+and corruption failure. Copies/locks and output are real; the browser is an owned synthetic
+process, not the rebuilt Chromium UI. Offscreen native renders are under `target/native/`.
+These fixtures are synthetic; they do not prove that the
+real browser or downloaded package works. The installed browser checks in
+[the Phase 1 contract](phase-one.md#release-evidence)
+remain mandatory.
+
+`./tools/stainless profiles help` exposes the mode-policy matrix, opt-in metadata registry, foreground per-root
+browser ownership and cold backup/copy-only preview import/restore tools. It does not need
+Xcode or a Chromium fetch, modify the default preview automatically, or ship the developer CLI inside the app.
+See [profile ownership, key/IPC boundaries and migration rules](profile-isolation.md), including
+registered-root updater snapshot/recovery and the missing coverage in older installed helpers.
+The source adds a native **Stainless Updates > Managed Profiles...** entry point backed by the
+bundled Rust helper, not `xtask`. Its recovery window defers this helper's automatic updates
+while users close browsers normally, then exposes consented cold backup and clone-only restore.
+Packages declare native chooser/recovery capability 1 and browser
+managed-modes capability 1; incompatible/missing helpers fail visibly without a developer/default
+profile fallback. Existing native/Rust executable hashes, `profile_chooser_version` and
+`profile_recovery_version` bind the runtime to the build manifest. This source integration
+does not publish a preview or verify installed native chooser/recovery workflows.
+
+Current source also supplies explicit **Open Safe Mode** for a managed Standard identity,
+with an explicit **Open Normally** action after safe exit. It preserves saved configuration
+and prior session data instead of resetting them; its own tabs are not journaled.
+See [startup restrictions and limits](profile-isolation.md#managed-startup-safe-mode).
+The seventh patch and bundled helper declare browser `StainlessManagedSafeModeVersion = 1`
+and helper `StainlessProfileSafeModeVersion = 1`; both are required before safe launch.
+Build/package checks bind `managed_safe_mode_version` and `profile_safe_mode_version` to the
+native executable hashes and source manifest. Older pairs are rejected, not silently
+launched normally. The new smoke journey requires this new browser build; it does not
+revalidate an old candidate or prove installed native operation.
+
+When the exact source and its pinned Node/TypeScript tools are already available, the
+settings source fixtures need no additional npm install or browser launch:
+
+```sh
+# SOURCE is the exact patched Chromium src directory, outside this repository.
+NODE="$SOURCE/third_party/node/mac_arm64/node-darwin-arm64/bin/node"
+TYPESCRIPT="$SOURCE/third_party/node/node_modules/typescript/lib/typescript.js"
+"$NODE" tests/fixtures/settings_routes.cjs "$TYPESCRIPT" "$SOURCE/chrome/browser/resources/settings"
+"$NODE" tests/fixtures/password_import_state.cjs "$TYPESCRIPT" "$SOURCE/chrome/browser/resources/password_manager/passwords_importer.ts"
+```
+
+These are synthetic routing/import state-machine checks, not UI or native-import evidence.
+An earlier five-patch cache is intentionally preserved rather than silently rewritten:
+verify the complete current stack in a separate cache or explicitly review its transition
+before a future build. The coordinator must still reject unrecognized source edits.
+
+The DMG metadata fixture uses Chromium's already-vendored installer libraries,
+without pip installs, Finder automation or mounting. After building, set `SOURCE`
+and `DEPOT` to this manifest's isolated Chromium and depot_tools directories:
+
+```sh
+target/native/render-dmg-background target/native/dmg-background-fixture.png
+"$DEPOT/python-bin/python3" -B tests/fixtures/dmg_layout.py \
+  "$SOURCE" target/native/dmg-background-fixture.png
+```
+
+It round-trips the actual Finder metadata and rejects a wrong Applications
+destination or a background alias targeting another volume. Existing native icon
+checks also verify the Retina arrow points right and leaves space for both items.
+
+The packager also reuses the app's generated ICNS for `.VolumeIcon.icns` and
+the DMG file's custom-icon resource. It sets their Finder custom-icon flags and
+creates an additional metadata-preserving `.dmg.zip` download. Raw downloads
+cannot retain a file's resource fork; macOS Archive Utility restores it from the
+wrapper ZIP. Both download variants enter `SHA256SUMS`; the existing updater
+ZIP/feed and pinned Finder layout are unchanged.
+
+The mounted-volume flag is set on an owned writable APFS image before final
+UDZO compression; setting it only on the source folder does not survive image
+creation. Packaging therefore needs the isolated execution environment above.
+Its mount guard detaches on completion and Rust error/unwind paths, preserving
+the backing image and mount directory if detach fails rather than deleting a
+live mount.
+
+The focused `cargo test --locked -p xtask package::tests::dmg_file_` cases use
+file metadata and archive round trips without mounting or GUI execution.
+`package::tests::dmg_volume_icon_survives_compression` creates, verifies and
+mounts an owned synthetic image, then detaches it even on a validation error.
+It is ignored by default and explicitly run only on the isolated macOS CI
+runner. Do not run that ignored case on the active development desktop.
+These checks inspect icon bytes/metadata, not a physical Finder screenshot;
+they do not produce or validate a new browser installer.
+
+`./tools/stainless smoke /exact/path/to/Stainless.app` uses the matching locally built ChromeDriver
+and disposable profiles to exercise HTTP navigation/find, tabs, downloads, DevTools/PDF,
+restart/history and Incognito isolation, and rejection of a synthetic self-signed HTTPS site.
+The synthetic browser uses Chromium's mock Keychain and never imports the user's profile.
+It never uses `--no-sandbox` or disables TLS validation. Browser-command automation
+is not proof of desktop-input isolation; native GUI execution must follow the
+[separate-host/session requirement](#native-macos-gui-test-isolation).
+The extended smoke also checks an actual cross-origin out-of-process iframe and native
+`sandbox_check` status for its own renderer children. Native UI, bookmarks/session restoration
+and clean-host checks remain separate release gates. The synthetic TLS fixture needs the macOS `openssl` command.
+Its HTTPS server uses the pinned Python standard library and binds only to loopback,
+including on Macs whose bundled LibreSSL cannot bind `s_server` to a specific host.
+The smoke also loads IANA's public `https://example.com/` fixture to verify normal trusted
+HTTPS after rejecting the self-signed site. This check needs internet access, sends no profile
+or repository data, and does not make installed browsing depend on that site.
+
+Run the built-app smoke and native browser fixtures **sequentially for the same
+output tree**. They share the app bundle and macOS code-sign-clone state, so they
+are not independent parallel checks. An overlapping run produced a `dyld`
+missing-framework failure in a temporary `.code_sign_clone` bundle and a macOS
+crash dialog even though the check was headless. After the native fixtures
+finished, the same unchanged app/driver passed the complete smoke alone.
+Preserve such failure diagnostics; do not disable code-sign cloning, TLS,
+sandboxing or other production protections to hide them. No reinstall or
+modification of the user's installed app is part of source-check recovery.
+
+`package` requires an actual full-browser build and its matching manifest. It copies the complete
+non-component app, embeds the updater, emits notices and dependency sources, checks Mach-O
+runtime dependencies, preserves required entitlements while applying local ad-hoc signatures
+inside-out, runs that local browser smoke against the staged app, and produces:
+
+- `Stainless-VERSION-macos-arm64.dmg`, with an Applications link.
+- `Stainless-VERSION-macos-arm64.zip`, the complete app consumed by the updater.
+- `stainless-preview.json`, identifying the release, platform, version, build, schema, ZIP name,
+  size and SHA-256.
+- `SHA256SUMS`, `stainless-build.json`, `Cargo.lock`, Chromium/Rust notices, Rust dependency sources,
+  installation instructions, `profile-isolation.md` with native chooser/ownership/recovery limits,
+  `degoogling.md` with unavailable features/replacement gaps,
+  and explicit unverified release status.
+
+The DMG retains a 720-by-480 icon-view layout, 128-point app/Applications icons,
+16-point labels and hidden Retina background artwork with a right-pointing arrow.
+It reuses the pinned Chromium `.DS_Store` generator and its vendored libraries;
+the existing `hdiutil` packager remains the image producer. Metadata and artwork
+checks do not establish the final visible Finder appearance without opening the
+image. Local packaging does not mount it, launch Finder or install the app.
+
+Rust notices/sources cover the updater's resolved arm64 macOS normal/build dependency closure,
+not unrelated Android, Windows or test-only crates. The linked Rust standard library's official
+copyright notices and MIT/Apache license texts are included separately.
+Runtime inspection uses the pinned LLVM `llvm-objdump` load commands, not a dylib's own install
+ID or `otool` archive-member parsing of parenthesized Chromium helper names.
+Packaging derives the browser and updater's native `.icns` icons from the tracked transparent
+[Stainless logo](../chromium/branding/stainless-logo.png) and
+[black icon](../chromium/branding/stainless-icon.png), including the 1024px Retina frame.
+The original S colors are checked pixel-by-pixel. The updater's menu-bar item uses a one-color
+36px (18-point Retina) template that `render-icon ... status-template` renders from the same logo
+during packaging: it keeps the S silhouette and outer outline, cuts out the ribbon's interior fold
+lines so they stay visible at that size, and is marked as a template so macOS tints it.
+`icon-tests` checks that it has one color and stays inside the S. Both master hashes and both
+native renderer
+hashes are recorded/checked before packaging; both PNGs ship as release assets. The build-only
+renderer is compiled from `tools/xtask/macos/`, with no new runtime/dependency requirement.
+Regenerate the black master after an intentional source-logo change with
+`target/native/render-icon chromium/branding/stainless-logo.png chromium/branding/stainless-icon.png 1024`;
+then regenerate/review the downstream theme assets rather than leaving stale WebUI logos.
+
+Ad-hoc signatures allow local Apple Silicon execution and detect broken bundle contents. They
+are not Developer ID signatures, publisher authentication, or notarization.
+
+Output is under `dist/VERSION/`. Packaging refuses to overwrite a previous candidate. Keep
+the prior usable app/package and profile snapshots; do not clean them as ordinary build output.
+After a verified release, [`scripts/release.sh`](../scripts/release.sh) removes older packages
+and other revision caches unless `--keep-artifacts` is given ([cleanup](releasing.md#cleanup)).
+
+## Continuous integration
+
+The public repository's [CI workflow](../.github/workflows/ci.yml) runs on pull request creation
+and updates, including drafts, pushes to `main`, and manual dispatch. Superseded runs for the
+same pull request or branch are canceled. It needs no repository secrets, release credentials,
+personal profiles or Google API keys.
+
+The Apple Silicon `macos-26` job checks formatting and Clippy, runs
+`./tools/stainless test --jobs 2`, and builds the locked Rust workspace in release mode.
+This includes the existing synthetic HTTPS/update, profile ownership/recovery, icon and
+offscreen AppKit checks. A separate Ubuntu job audits `Cargo.lock` against current RustSec
+advisories with pinned `cargo-audit`. Both use the checked-in Rust toolchain and two Cargo workers.
+The test harness runs fixtures serially: unrelated parallel fork/exec launches can briefly
+inherit a fixture's live `flock` descriptor and cause a false browser-still-running rejection
+on macOS. Tests that explicitly exercise concurrent ownership retain their internal concurrency.
+SHA-pinned checkout/cache actions use a read-only token; checkout
+does not retain Git credentials. Dependency/build caches are disposable acceleration only.
+
+Hosted CI does **not** fetch or build Chromium, run the source fixtures requiring Chromium's
+pinned Node/TypeScript tree or produce a DMG. `./tools/stainless test` also exercises
+`scripts/release.sh` against a synthetic Git remote, GitHub CLI and build tools. The separate
+[release workflow](../.github/workflows/release.yml) runs only for pushed release tags: it
+re-verifies a draft staged from the build host and publishes it, as described in
+[releasing](releasing.md). The opt-in real-payload tests
+still need their exact release packages. Full-browser smoke, fresh Stable provenance,
+clean-Mac installation and authorized automatic updates remain
+[separate release evidence](phase-one.md#release-evidence), not implied by a green CI run.
+
+## Browser command palette
+
+Current source adds **View > Command Palette...**, the browser's three-dot menu entry and
+**Command+Shift+P** on macOS by default. Existing browser/platform bindings stay unchanged until
+an explicit [profile shortcut edit](#profile-keyboard-shortcuts); DevTools/app/popup
+windows are not palette owners. This is source functionality, not an update to an installed preview.
+
+The search field receives initial focus. Search matches every whitespace-separated term in the
+existing localized action label, ignoring case and accents. Empty search lists available commands;
+no match shows an explicit empty state. Up/Down enters the native results table, whose arrows,
+Home/End and scrolling retain Chromium behavior. Enter or a double-click runs the selected command.
+Tab/Shift+Tab moves through search, results and Close; Escape or Close dismisses without dispatch
+and returns focus to the owning browser. An already-open palette is reused.
+
+The bounded catalogue contains these existing Chromium actions, **only when supported, visible
+and enabled**:
+
+| Group | Actions |
+| --- | --- |
+| Tabs/windows | New tab, new window, new Incognito window, close tab, duplicate tab, reopen closed tab |
+| Page/navigation | Find, back, forward, reload, zoom in/out/reset, focus the address bar |
+| Local browser UI | Bookmark this tab, bookmark manager, history, downloads, settings |
+
+Labels, existing shortcut hints and dispatch come from the owning browser's ActionItems and command
+controller. The palette is a browser-owned native dialog, not an AppKit sheet or an independent
+browser. Disabled/hidden results are removed live; losing a selected result never silently
+selects a different command. Activation checks availability again, dismisses the palette window,
+then rechecks the **same owner** before normal command dispatch. A stale command fails visibly.
+Blocked tabs, other native modals, closing owners and non-normal windows cannot use the palette.
+Managed forced Incognito cannot use it to open Standard windows, settings, bookmark management
+or restoration; inherited Incognito retains the normal Chromium command semantics, including
+the history disclaimer. Safe Mode cannot use it to restore previous sessions, even with stale
+controller state. Existing mode, service and backend restrictions remain intact.
+
+Catalogue/search are local and transient. Availability checks read the current tab/window state,
+but opening/searching does not enumerate or index browsing records, files, keys or page contents,
+persist queries, send telemetry or fetch suggestions. Only explicit activation invokes the
+selected existing action. There are no arbitrary URL,
+JavaScript, flag, subprocess, filesystem/key, DevTools/CDP, macro or generic renderer-dispatch
+commands. The bounded shortcut editor and [portable keymaps](keymaps.md) below add no
+macros or Vim navigation.
+New Stainless labels follow the existing untranslated resource pattern; action labels reuse
+Chromium's translations.
+
+The focused native Chromium fixture target exercises production search/availability, real
+tab/find/zoom/library dispatch, stale/hidden commands, owning-browser/modal/lifecycle checks and
+keyboard/focus flows, including managed Incognito and Safe Mode. The Mac test launcher uses its
+direct support dependencies, not the unrelated WebUI-test resource aggregate. Existing upstream
+test sources and the full browser-test target are retained. Build it with eight jobs after
+verifying the exact patch stack:
+
+```sh
+# SOURCE and DEPOT identify this manifest's isolated patched cache, not another installed browser.
+# Link native fixtures before the final runtime staging/signature checks.
+./tools/stainless build --jobs 8 --native-tests
+# Run the next command ONLY inside the verified isolated macOS GUI host/VM/session.
+# HOME/mock Keychain isolate fixture data; the headless flags do not isolate desktop input.
+CHROME_HEADLESS=1 HOME=/exact/disposable/home "$SOURCE/out/Stainless/stainless_command_palette_tests" \
+--headless=new --use-mock-keychain \
+--gtest_filter='Stainless*-*.MANUAL_*' \
+--test-launcher-jobs=1 --test-launcher-retry-limit=0 \
+--test-launcher-output-bytes-limit=2097152
+```
+
+The bounded 2 MiB capture retains existing AppKit Fn-menu warnings that can
+exceed the launcher's default 500 KiB limit; no warning is suppressed.
+The real-server Push case is explicitly manual and uses the
+[separate owned-fixture procedure](web-push-self-hosting.md#actual-native-browser-interoperability).
+Wait for these native processes to exit before starting the built-app smoke.
+The native test launcher uses the separate framework at
+`out/Stainless/Stainless Framework.framework`, not the framework inside the
+app bundle. The source finalizer stages and verifies the same fixed C ABI
+libraries/notices in both. It does not add a runtime-library path override.
+Direct `autoninja` native-test linking can re-sign Chrome data dependencies;
+re-run the source finalizer before native model checks or app smoke if using
+that lower-level path. `--native-tests` records the actual native fixture and
+dedicated local-resource test executable hashes alongside the clean
+source/browser/runtime provenance. The latter uses a test-only bounded worker;
+see its [resource limits and invocation](local-services.md#bounded-resource-fixture).
+
+`--native-tests` also links `stainless_privacy_unittests`, which covers
+[threat-list and Pwned Passwords parsing](threat-protection.md#verification). It starts no
+browser or AppKit UI, so unlike the fixtures above it may run on a developer desktop:
+
+```sh
+"$SOURCE/out/Stainless/stainless_privacy_unittests"
+```
+
+Use the pinned `depot_tools/autoninja` wrapper for object-level and protocol-test
+targets too. Do not run `third_party/ninja/ninja` inside an existing Siso output:
+it creates incompatible Ninja metadata and can trigger unnecessary rebuilds.
+Keep coordinated release builds offline (`use_remoteexec = false`) and metrics disabled. The
+opt-in [compile cache](compile-cache.md) uses its own output directory and stays local.
+Preserve earlier usable outputs instead of cleaning or resetting a shared cache.
+
+**Verified source, 2026-11-14:** the complete eight-patch browser, matching ChromeDriver and
+native fixture built from clean source `4be1f597b3c8b877de83baadbb4dfc7c3094370b`
+on Apple Silicon macOS 26.6, Xcode/SDK 27.2, with eight build jobs. The isolated palette cache
+is `~/Library/Caches/StainlessBuildCommandPalette-a39d5144/`; the app's adjacent `stainless-build.json`
+records that commit with `dirty: false` and all eight patch hashes. Earlier caches/candidates are retained.
+Fresh official Mac Stable metadata and full source VERSION still agree on
+**158.0.8127.37 / `b8c2be851f62f6a394ec57955d7f31335d7cb6d4`** at
+**2026-11-14T03:11:28Z**, using the official URLs under [Maintaining Chromium](#maintaining-chromium).
+
+All seven native palette journeys pass three bounded repetitions each, without launcher retries
+(21 passes). This includes actual tab/find/zoom/library dispatch, stale-command denial, native
+presentation/focus/dismissal, owner close, forced Incognito and Safe Mode. The matching
+full-browser/ChromeDriver smoke also passes browsing, service restrictions, profile isolation,
+Safe Mode, TLS, site-isolation and native sandbox checks. Locked Rust/native recovery checks,
+formatting, Clippy, release build, source routing/import fixtures and RustSec audit pass.
+
+| Verified binary | SHA-256 |
+| --- | --- |
+| Browser launcher | `5b70f251e8084e76a239e1123a5391ab00a4e994e77c5d62e0857176bfda74cd` |
+| Active Stainless Framework | `a12d07af13ae8ec1ab37512ad4cca4ff973a553a096749ec98a002a8903e884b` |
+| Matching ChromeDriver | `591c5e0e74479ba0c765b3ba78e878b4f9c771c633168e172e97221b0b1920fa` |
+| Native palette fixture | `e4605f22270d81ac42e6c5adccc3e942fa95bafe9b145f7e1ce6c1d41e302e0d` |
+
+Headless native runs emit virtual-display/CVDisplayLink fallback, ignored cloud-policy,
+existing actor-metadata `NOTIMPLEMENTED` and occasional child-reaping diagnostics; expected
+unavailable-command warnings are also exercised. These are not physical-display evidence.
+Five existing opt-in real-payload tests still require release packages and remain unrun.
+These fixtures and the matching full-browser/ChromeDriver smoke do not establish physical
+keyboard/screen-reader behavior, installed-native workflows, clean-Mac installation or an
+authorized N-to-N+1 update. No installer or browser release is published by this slice.
+
+## Profile keyboard shortcuts
+
+Current source adds **View > Keyboard Shortcuts...** and the same three-dot menu entry.
+The palette also has a **Keyboard Shortcuts...** button. These menu routes have no
+customizable binding and remain available if palette invocation is removed or changed.
+This is unpublished source functionality, not a feature added to an installed preview.
+
+The browser-owned, modeless Views editor shows the current and default primary shortcut for the
+**19 browser actions listed above plus command-palette invocation**. It does not remap
+every Chromium command, website shortcut, extension command, DevTools/app/popup window,
+platform shortcut or global OS binding. Existing Chromium aliases, including download and
+navigation alternatives, stay intact until their action is customized; customizing or
+removing an action replaces all its browser aliases. Default restoration brings them back.
+
+Select an action with the table's arrows, then activate **Record shortcut** or press
+Enter in the table. Recording takes focus in the named, read-only capture field.
+New bindings use Command with a letter or digit, optionally Shift or Control.
+Option, dead keys/IME composition, plain typing, function/navigation/editing keys and
+system/text-editing combinations are excluded. Existing punctuation/Option defaults can
+be restored with **Use default**. Capture uses Chromium key codes, modifier flags,
+native key equivalents and shortcut labels, not a shortcut-string parser.
+
+Capture, **Remove shortcut** and **Use default** only stage a change. **Apply shortcut**
+explicitly validates and applies it. Other commands, unchanged default aliases, native menu
+bindings, active high-priority extension handlers and macOS symbolic hotkeys are checked;
+conflicts/reserved or unsupported values are shown without applying a partial change.
+There is no automatic overwrite or swap: remove and apply the other binding first to
+reassign a supported shortcut. Resetting one action can also conflict with a reassigned
+default; **Reset all shortcuts** requires a second, explicit confirmation before resetting
+the whole supported set.
+
+Recording suppresses normal browser-command lookup only in that editor's own native
+window. It does not suspend another profile/window or register a global OS hook.
+Losing the editor's activation or capture focus cancels recording. The editor uses
+Chromium's normal dialog ownership rather than an AppKit sheet; other real modal
+dialogs continue to block shortcut dispatch through the normal owner checks.
+
+Tab/Shift+Tab traverse standard native controls; leaving capture cancels recording.
+Escape cancels recording first, then dismisses the editor normally. Close discards a pending
+change. Status and validation feedback use a polite accessible live region. Closing the
+editor requests focus restoration to its live owner; Chromium stores that target if the
+owning window cannot become key yet. Closing an owner closes its editor. Normal command
+dispatch still rechecks availability, visibility, blocked/modal and closing owners and
+forced-Incognito/Safe-Mode restrictions. A saved key never grants a disabled action authority.
+Physical keyboard layouts and VoiceOver still need installed, human-operated verification.
+
+| Context | Storage and lifetime |
+| --- | --- |
+| Normal Chromium profile | `stainless.keyboard_shortcuts` in that profile's ordinary preferences, registered without sync. Existing/new normal windows use that profile's current bindings; normal quit/restart preserves them. Separate Chromium profiles and managed roots have separate stores. |
+| Inherited Incognito | Initially inherits only its own identity's normal bindings through Chromium's preference overlay. Private changes/reset are in memory, shared by that OTR profile's private windows, and never written back to the normal store. They disappear after its last private window closes. |
+| Fresh managed Incognito | Its launcher creates a fresh root without copying the selected identity's preferences. It starts with defaults; edits remain in its private in-memory overlay, not the selected persistent identity. |
+| Managed startup Safe Mode | Uses defaults and a visibly read-only editor for this launch. Saved overrides are ignored, not reset or deleted. |
+
+Malformed, unsupported, unknown-action or conflicting stored values activate usable defaults,
+produce Chromium diagnostics and show an explicit recovery message in the editor. The saved
+value is retained until a confirmed reset; one valid edit does not silently erase corrupt
+configuration. Read-only/policy-controlled preference stores reject edits. Applying uses
+Chromium's normal preference persistence and requests a pending-write commit; it is not a
+separate settings file or an fsync/disk-health guarantee.
+
+This first editor does not override macOS **App Shortcuts** (`NSUserKeyEquivalents`).
+If those are configured for this app, profile customization is unavailable with an explicit
+notice; remove them in System Settings and restart to use this editor. No OS shortcut is
+registered or changed. Third-party global hotkeys and all physical input-method/layout
+interactions cannot be exhaustively enumerated by this slice; OS/extension priority is not
+taken over. The next [portable keymap slice](keymaps.md) adds explicit native file transfer
+with a change preview and revalidated approval for this same supported set. Arbitrary macros,
+Vim and general settings migration remain separate work.
+
+The ninth ordered patch preserves all eight earlier patch files, Chromium/toolchain/GN
+argument/product pins, managed-root ownership and recovery, compatibility floors and profile
+schema. It adds no renderer dispatcher, networking, account, sync, telemetry, data index,
+arbitrary command IDs, URLs/JavaScript, flags, subprocess or file/key authority.
+
+The existing `stainless_command_palette_tests` target also includes focused native shortcut
+journeys: real capture/apply/removal/reset, native accelerator dispatch and labels, conflicts
+and text entry, existing/new/other-profile windows, inherited/fresh-root private state,
+normal restart persistence and stale/disabled/modal/Safe Mode restrictions. Its fixtures
+use synthetic profiles and mock Keychain, but its real windows can activate and receive
+desktop input despite headless flags. Only run it in the
+[isolated macOS GUI environment](#native-macos-gui-test-isolation).
+No existing meaningful tests were removed. Build/run it with the commands
+in the palette section; hosted source/native CI does not build this Chromium target.
+
+**Verified source, 2026-11-14:** the complete nine-patch browser and matching ChromeDriver
+built from clean source `64d74de269fe9af0fcd3ba3de48ac5ba2db5dfae` on Apple Silicon
+macOS 26.6, Xcode/SDK 27.2, with eight build jobs. The separate cache is
+`~/Library/Caches/StainlessBuildShortcuts-50b796e4/`; its adjacent `stainless-build.json`
+records that commit with `dirty: false` and all nine patch hashes. The earlier palette
+cache retains its eight-patch manifest and unchanged framework hash above.
+Fresh official Mac Stable metadata and full source VERSION still agree on
+**158.0.8127.37 / `b8c2be851f62f6a394ec57955d7f31335d7cb6d4`** at
+**2026-11-14T14:05:41Z**, using the official URLs under
+[Maintaining Chromium](#maintaining-chromium).
+
+All **20 native journeys pass three complete runs each**, with launcher retries disabled
+(60 successful journeys, including the paired normal/private restart setup chains).
+They exercise the production native accelerator/command-controller path, not a mock editor.
+Native menu checks match actual key-equivalent events and modifier masks. Focus evidence
+checks the stored return target when its owner cannot become key and the focused target
+when active. Background/headless configuration does not stop the native process from
+becoming frontmost or receiving unrelated typing. These historical runs are not
+desktop-isolation evidence or physical VoiceOver verification.
+
+The exact final app/driver smoke also passes browsing/find/tabs, local settings and repeat
+import, removed-service controls/backend denial, persistence and inherited/fresh-root private
+isolation, managed Safe Mode and normal return without losing saved data, untrusted-TLS
+rejection and trusted HTTPS, a cross-origin out-of-process iframe and **six owned sandboxed
+renderers**. It records **zero Google-service URL requests** during the 30-second idle window
+plus browsing sequence. Locked Rust/native profile/recovery checks, formatting, Clippy,
+release-tool build, source routing/import fixtures, RustSec audit and strict ordered
+patch checks pass.
+
+| Verified binary | SHA-256 |
+| --- | --- |
+| Browser launcher | `5b70f251e8084e76a239e1123a5391ab00a4e994e77c5d62e0857176bfda74cd` |
+| Active Stainless Framework | `ad037ed47912c7ce06bcaf779f664c5ab21b1c66d33307c02e3b224ad781886a` |
+| Matching ChromeDriver | `591c5e0e74479ba0c765b3ba78e878b4f9c771c633168e172e97221b0b1920fa` |
+| Native palette/shortcut fixture | `5e02a53673541ad25a88b9dc2ef72eb76af34b913d46c51f42e504f52ffc4da3` |
+
+Headless runs retain the existing virtual-display/CVDisplayLink fallback, ignored cloud-policy,
+actor-metadata `NOTIMPLEMENTED`, occasional mailbox/child-reaping diagnostics and expected
+rejection warnings. Five opt-in real-payload tests still require release packages and remain
+unrun. Physical keyboard/layout/screen-reader checks, installed native workflows, clean-Mac
+installation, authorized N-to-N+1 updates, licensing/disclosure and the full Phase 1/#4/#6/#7/#8
+gates remain open. No installer, browser release or installed-preview update is produced.
+
+### Portable keymap source evidence
+
+The tenth ordered patch adds **Export keymap...** and **Import keymap...** inside the same
+native editor. [The versioned format and usage guide](keymaps.md) defines effective-state
+export, partial-file preservation, preview/Apply/Cancel semantics, atomic mutation and
+the private/Safe Mode boundaries. All nine earlier patch files, upstream/tool/product/GN
+pins, profile schema, managed ownership/recovery and command-dispatch guards are retained.
+
+Use the existing `stainless_command_palette_tests` commands above; the target now includes
+keymap journeys and shares the existing native shortcut fixture rather than replacing it.
+Hosted source/native CI still does not build Chromium or verify native file pickers.
+
+**Verified source, 2026-11-14:** the complete ten-patch `chrome`, matching ChromeDriver and
+native fixture build from clean source `1db7ac47a38a3e24d95ccd3211fd016e54bfbb7a` on
+Apple Silicon macOS 26.6, Xcode/SDK 27.2, with eight browser build jobs. The separate
+APFS-cloned cache is `~/Library/Caches/StainlessBuildKeymaps-484064e8/`; its adjacent
+`stainless-build.json` records that commit with `dirty: false` and all ten patch hashes.
+The tenth patch's SHA-256 is
+`7352ad5a0431d008a1c0b65b93b7b43f219aa442cc519ed73654b02435a1e4cc`.
+All nine earlier patch hashes and the prior nine-patch framework hash above remain unchanged.
+
+Fresh official Mac Stable metadata and full source VERSION still agree on
+**158.0.8127.37 / `b8c2be851f62f6a394ec57955d7f31335d7cb6d4`** at
+**2026-11-14T20:49:38Z**, using the official URLs under
+[Maintaining Chromium](#maintaining-chromium). No upstream, GN, toolchain, product or
+profile-schema pin changed.
+
+All **28 final native tests pass in three complete launcher runs**, including their four
+PRE setup stages per run: **96 successful launched tests**, with launcher retries disabled.
+The keymap journeys exercise hand-written input, real isolated file I/O and another synthetic
+profile, explicit preview/apply/cancel/close, custom/default/unbound states, native aliases,
+invalid/schema/version/duplicate/size rejection, conflicts, stale approval, single-dictionary
+mutation, late extension/native-menu reservations, owner closure, private overlays, Safe Mode
+and restart persistence. The native menu fixture uses Cocoa's real printable-Shift encoding
+and asserts that the conflicting native event actually matches. Picker choices are controlled
+callbacks, not desktop automation or installed file-picker evidence. No meaningful existing
+tests were removed.
+
+The exact final app/driver smoke also passes browsing/find/tabs, local settings and repeat
+import, removed-service controls/backend denial, persistence and inherited/fresh-root private
+isolation, managed Safe Mode and normal return without losing saved data, rejected self-signed
+TLS and trusted HTTPS, an out-of-process cross-origin iframe and **six owned sandboxed
+renderers**. It records **zero Google-service URL requests** during the 30-second idle window
+plus browsing sequence. The 97 locked Rust tests, existing offscreen native chooser/recovery
+checks, formatting, Clippy, release-tool build, source settings/import fixtures, four targeted
+Grit branding tests, RustSec audit and strict ordered patch checks pass.
+
+| Verified binary | SHA-256 |
+| --- | --- |
+| Browser launcher | `5b70f251e8084e76a239e1123a5391ab00a4e994e77c5d62e0857176bfda74cd` |
+| Active Stainless Framework | `1310d8dd2919c08a550b94fc754821934c9747843a47dc0f1fca8838ccfd744a` |
+| Matching ChromeDriver | `591c5e0e74479ba0c765b3ba78e878b4f9c771c633168e172e97221b0b1920fa` |
+| Native palette/shortcut/keymap fixture | `43ff328cdc114e79a6b7388e67b7513c363e5b8ffe75b68be14246929dbd0774` |
+
+Headless logs include virtual-display/CVDisplayLink fallback, ignored cloud-policy,
+actor-metadata `NOTIMPLEMENTED`, Cocoa Fn-mask warnings and occasional mailbox/widget-IPC
+or child-reaping diagnostics, alongside expected rejection warnings.
+Five opt-in real-payload tests still require release packages and remain unrun.
+Physical keyboard/layout/VoiceOver, installed native file-picker/chooser/recovery workflows,
+clean-Mac installation, authorized N-to-N+1 updates, licensing/disclosure and complete
+Phase 1/#4/#6/#7/#8 gates remain open. No installer, browser publication or installed-preview
+update is produced.
+
+## Local resource overview
+
+Current source adds **View > Resource Overview...** and the same three-dot menu
+entry. It uses Chromium's real task providers for read-only process CPU and
+memory footprint, with owned-window/profile tab details, explicit shared totals
+and unavailable samples. Chromium Task Manager stays separately available;
+the fixed shortcut/keymap catalogue is not expanded.
+See [metrics, privacy, lifecycle, usage and actual browser evidence](resource-overview.md).
+The existing `stainless_command_palette_tests` target also runs the seven
+resource journeys. This does not publish an installed feature or complete #29.
+
+## Sources, caches and pins
+
+[`chromium/manifest.json`](../chromium/manifest.json) pins Chromium, `depot_tools`, the Rust
+bootstrap archive/hash, product version/build and profile schema.
+[`chromium/args.gn`](../chromium/args.gn) defines a local, non-component arm64 release build.
+The [thirty-three patches](../chromium/patches/) separate identity, browsing defaults/telemetry,
+macOS updater integration, translated/native branding, Google-service removal and managed
+mode/local-settings integration, temporary managed startup Safe Mode, the native command palette
+profile-local shortcut customization, previewed portable keymaps and a
+[local read-only resource overview](resource-overview.md), followed by
+[local-only saved-history restrictions](history-privacy.md), then the
+browser-local Profiles roster and Stainless services-menu branding, then
+[browser-side Stainless internal-address aliases](internal-urls.md), followed by
+experimental user-configured native Push and
+[Local Services settings](local-services.md), then a test-only native
+SentencePiece feasibility probe linked through Chromium's normal GN target,
+then a browser-only generic-sandbox local worker and document-bound broker,
+root-bound model storage/setup, native page/selection translation/restore and
+document-bound local Web Speech integration, selected-tab local captions and an
+independent local PDF OCR path, original-document native image text extraction
+and a separate local image-description AX adapter, followed by per-document PDF
+OCR language choice and bounded-raster feedback, then browser-owned resource
+timing diagnostics and a separate test-only resource fixture, followed by
+selected-tab caption lifecycle/native-control fixtures, passive image-input
+privacy canaries and public speech lifecycle fixtures, then on-device
+[threat-list blocking and opt-in Pwned Passwords breach checks](threat-protection.md).
+The first fourteen patch files are unchanged by the service slice.
+The Safe Mode shared startup selector is
+declared in the existing GN constants target; GN arguments, tool pins and profile schema are unchanged.
+The source build also prepares the fixed CPU-only translation/OCR/speech/vision C ABI
+libraries, verifies their native input/configuration/advisory/notice evidence,
+and embeds/signs them in the built framework before browser checks. This adds
+no automatic model download or feature enablement. Its pinned native
+tool manifest requires Xcode/SDK 27.2. Native build inputs default to
+`$STAINLESS_CACHE_DIR/local-services`; an absolute external
+`STAINLESS_SERVICES_CACHE_DIR` can select an existing dedicated native build
+cache. This is not the installed browser's root-bound model cache.
+See [native runtime status and limits](local-services.md#native-runtime-integration).
+The [availability guide](degoogling.md) documents the removed protections/features and
+replacement issues. PDF-to-Google-Drive is excluded by GN; other service paths are disabled
+downstream. Browser sign-in uses the immutable product policy and empty OAuth configuration,
+not the non-overrideable derived `enable_dice_support` value. The pinned desktop GN graph
+requires supervision code, so Google Family Link activation and remote safe-sites checks are
+disabled at runtime rather than setting the unsupported `enable_supervised_users = false`.
+Full-browser PDF integration also requires Screen AI code in the build graph; its OCR and
+main-content service/model availability gates are disabled downstream.
+Speech code remains in the required desktop graph, but recognition/service binding and
+caption/translation availability are disabled rather than generating unsupported GN test targets.
+Safe Browsing code is also referenced unconditionally by the pinned browser/test graph.
+Its standard/enhanced state and request-eligibility gates are disabled downstream, along
+with the immutable protection policy, rather than using an unsupported `safe_browsing_mode = 0`.
+
+Chromium history stays outside this repository:
+
+```text
+~/Library/Caches/StainlessBuild/
+  depot_tools/DEPOT_TOOLS_REVISION/
+  chromium/CHROMIUM_REVISION/
+    .gclient
+    src/
+      out/Stainless/
+```
+
+Set `STAINLESS_CACHE_DIR` to an absolute, whitespace-free path on an APFS volume to relocate it.
+Do not point it inside the Stainless checkout or at another project's Chromium checkout.
+The coordinator checks the pinned revision and exact expected tracked changes rather than
+resetting a dirty source tree. It never uses `git reset --hard` or deletes unknown source work.
+It constructs the expected index by applying each patch in order, so overlapping downstream
+hunks are supported without accepting any extra tracked edits.
+Cache mutation/builds are locked per Chromium revision so separate worktrees cannot change
+the same cached source during compilation. This development cache is separate from the
+installed browser's `~/Library/Caches/Stainless` data.
+
+For source-only work before Xcode is installed:
+
+```sh
+./tools/stainless fetch --jobs 8
+./tools/stainless patch-check
+```
+
+Fetching Chromium and its dependencies can take hours and uses substantial bandwidth/disk.
+Chromium's pinned DEPS owns its Clang, GN, Ninja/Siso and other engine dependencies. Rust
+application dependencies use the committed `Cargo.lock`. Chromium also owns its Node/WebUI
+build tools. Separate [service probes](local-services.md) and the
+[self-hosted Push fixture](web-push-self-hosting.md) have explicit experimental
+build-only inputs; their dependency preparation is not a restored browser feature.
+`depot_tools` self-updating and its
+metrics collection are disabled for coordinated commands.
+Google API/OAuth build arguments are explicitly empty, and their standard environment
+overrides are removed from coordinated engine commands; no publisher keys are embedded.
+
+Build manifests record the product commit/dirty state, upstream revisions, patch hashes, GN
+arguments, Cargo lockfile, resolved Chromium dependencies, actual Xcode/SDK/Rust/Swift versions
+and build-host macOS. This is repeatability evidence, not bit-for-bit reproducibility or SLSA.
+
+## Maintaining Chromium
+
+**Source provenance checked 2026-11-25T14:55:08Z** with `./tools/stainless security-status`:
+fresh [official Mac Stable metadata](https://chromiumdash.appspot.com/fetch_releases?channel=Stable&platform=Mac&num=1)
+and the full revision's
+[official source VERSION](https://chromium.googlesource.com/chromium/src/+/4deb883708d3d25100c5aac2148aafc95dae95ac/chrome/VERSION?format=TEXT)
+agree on **Chromium 159.0.8154.34**.
+
+| Source | Version | Full Chromium revision |
+| --- | --- | --- |
+| Previous pin (159 rebase, unreleased) | 159.0.8154.13 | `4d790f9eb4c8abe65b8aaa3feba664e7c734ba56` |
+| Current pin / official Mac Stable at check time | 159.0.8154.34 | `4deb883708d3d25100c5aac2148aafc95dae95ac` |
+
+The [November 24 early Stable notes](https://chromereleases.googleblog.com/2026/11/early-stable-update-for-desktop_027920431.html)
+announce 159.0.8154.33/.34 for Windows and Mac without a separate security-fix count. Re-query
+rather than treating this dated record as current release approval. The complete 34-patch stack
+applies unchanged to .34, and its clang, lld and ninja binaries match the local-service pins.
+
+The notes below record the move from 158 to 159.0.8154.13.
+
+All 31 existing patches are rebased, followed by the new threat-list (0032) and Pwned Passwords
+(0033) patches. Upstream moved the privacy, security, main and menu settings templates from
+Polymer HTML to Lit `.html.ts` and the Password Manager sections to Lit; patch 0006 ports the
+same removals by hand rather than restoring removed Google UI. 159 compile fixes: views call
+`TableView::ClearModel()` because `SetModel()` is private (0008, 0009, 0011), 0007 no longer
+re-adds two includes that upstream deleted, and 0006 drops a using-declaration whose header it
+removes. The local-service toolchain pins follow the new clang/lld revision
+`c3223914b50811fb3be915840f06456acb83d096`.
+
+The full `chrome` target, matching ChromeDriver and updater helpers built with 14 jobs from
+clean source commit `a2b2ce0572e42f4b65c5e6d29d12be5f8d9587c9` (`dirty: false`, 33 patch
+hashes in `stainless-build.json`) at **2026-11-19T08:53Z** on Apple Silicon macOS 27.2.1,
+Xcode 27.2 (27B52), SDK 27.2, Metal 32023.922 and Rust 1.99.1. Review then found that hosts
+such as `a-.listed.example` skipped the parent-domain match. Commit `22e5c1f` fixes
+`ThreatList::Match`; its browser was rebuilt incrementally with the pinned `autoninja`, and
+`patch-check` verified the complete 33-patch tree. The coordinator `build` was not re-run because
+it ends with AppKit helper checks that must not run on the developer desktop, so
+`stainless-build.json` still names `a2b2ce0`.
+
+| Verified executable (fix commit) | SHA-256 |
+| --- | --- |
+| Browser launcher | `1ee0e5ebdae0bb6bb2e036defc9c5ae669c9465ae82017372820f0552e5095e1` |
+| Active 159.0.8154.13 Stainless Framework | `44355c20bb31d71a9c824ac8aac340289fb38cd21175ea9fed0f91e331f95388` |
+| Matching ChromeDriver | `ec46d6aabb73ce8f741142dab6bc9e8d003d0d86400c12b00ce1188a385bfe42` |
+
+The complete browser smoke passed for that app in a dedicated macOS 26.6.2 test VM with its own
+console session and no forwarded input: branding and immutable policies, removed settings and
+update controls, local controls and import UI, navigation/find/tabs, downloads, DevTools/PDF,
+restart/history/cookies, managed Incognito and Safe Mode, a cross-origin out-of-process iframe,
+**six native-sandboxed renderers**, self-signed TLS rejection, trusted HTTPS and **zero
+Google-service URL requests**. Its new checks blocked a seeded synthetic listed host and its `a-.` subdomain with the
+Stainless warning, kept the session-only exception after **Visit this site anyway**, showed the
+default-on toggle with the CERT Polska list downloaded live (125,777 domains), kept breach checks
+off, rendered Checkup and made **zero Pwned Passwords requests**. A fresh profile in the same VM
+downloaded both real lists about 30 seconds after start (181,587 and 125,777 domains) and
+recorded their ETags. With a synthetic credential, Checkup sent nothing to Have I Been Pwned
+while breach checks were off and only flagged it as weak; with them on, it sent exactly
+`/range/5BAA6` and flagged it as leaked. A typed sign-in on a synthetic loopback form sent the
+same single range request. `stainless_privacy_unittests` passes 8/8 on the build host.
+
+This is bounded synthetic evidence, not all-time network monitoring, a clean-host install or an
+installed N-to-N+1 update. It does not create a candidate or authorize publication.
+
+The previous 158.0.8127.37 pin was checked on 2026-11-13 and passed the browser smoke from
+clean commit `e38fc95282ab26b8aaae976fa6e7dbf250bdb42e`; that record is retained in git history.
+
+On November 12, the user explicitly requested a local **preview.5** candidate using the unchanged
+Chromium 158 pin. Its [official source VERSION](https://chromium.googlesource.com/chromium/src/+/6449d9f9a6a906edff724b7b220199b3fde4615c/chrome/VERSION?format=TEXT)
+was independently verified. The full six-patch browser and matching ChromeDriver build and pass
+isolated browser smoke, including settings search, removed deep links, retained local controls
+and service-traffic checks. The previous five-patch source/build cache was APFS-cloned before
+the reviewed transition, preserving its usable app and incremental build path.
+That preserved local experimental candidate remains tied to the old revision; the new source
+pin does not revalidate it. It does not change `security-status`, authorize publication,
+verify a clean host or prove installed automatic updates.
+
+Coding agents follow the repository's
+[Chromium update skill](../.github/skills/chromium-update/SKILL.md) before changing engine
+pins, patches or GN arguments and before preparing browser builds, packages or releases.
+Ask an agent to "Update Stainless to the latest Mac Stable Chromium" to apply the workflow,
+or request a check only to inspect freshness without changing sources.
+
+The skill compares fresh official Mac Stable metadata with both pinned version and revision,
+verifies the upstream source version, preserves the downstream stack and requires actual
+browser verification. The skill does not add a background watcher or scheduled automation;
+source/native CI does not replace daily maintenance and fresh release checks.
+
+Before publishing, and daily while a preview is supported:
+
+```sh
+./tools/stainless security-status
+cargo audit --deny warnings
+```
+
+`security-status` validates fresh official Mac Stable metadata, compares both pinned version
+and full revision, and verifies that the official revision's `chrome/VERSION` agrees. It records
+the check time and official URLs. Invalid, unavailable or inconsistent provenance blocks the
+check rather than reporting the pin current.
+
+An older pin requires a reviewed rebase. A pin newer than the fresh official release is a
+provenance discrepancy: by default, preserve it and stop browser build/package/publication work
+until resolved, rather than automatically downgrading or reusing an old check. The explicitly
+requested local preview.5 experiment above does not waive the publication gate. Version comparison
+is numeric, including every component. The 24-hour critical/72-hour other-security-fix response
+targets are engineering targets, not an already staffed monitoring service.
+
+To rebase, edit the pin, preserve the old checkout/package, fetch into the new revision's separate
+cache directory, resolve patch failures explicitly and run `patch-check`. Never silently discard
+local engine changes or apply an unrelated prebuilt browser as a fallback.
+
+### Managed startup Safe Mode source evidence
+
+The full seven-patch `chrome`, matching ChromeDriver and native helpers built from clean
+commit `5be4b6fbc221ce02dddcacca53c874828bd525ff`, finishing **2026-11-13T17:21:34Z**.
+The browser is in the separately APFS-cloned
+`~/Library/Caches/StainlessBuildSafeMode-b4fa9ca0/chromium/b8c2be851f62f6a394ec57955d7f31335d7cb6d4/src/out/Stainless/Stainless.app`.
+Its build manifest records `dirty: false`, all seven patch hashes and native/browser Safe Mode
+capability **1**. The first six patches, original .37 app/build manifest, older caches and
+previous candidates remain unchanged. GN arguments, Chromium/tool/product pins and profile
+schema are unchanged.
+
+| Built executable | SHA-256 |
+| --- | --- |
+| Browser launcher | `5b70f251e8084e76a239e1123a5391ab00a4e994e77c5d62e0857176bfda74cd` |
+| Modified Stainless Framework | `d39cf7d813f2a62b29a03298b4b24932fb5e6868f7d3a9d7b47317072b6fe0d8` |
+| Matching ChromeDriver | `591c5e0e74479ba0c765b3ba78e878b4f9c771c633168e172e97221b0b1920fa` |
+
+Actual modified-browser smoke passes the Standard -> Safe Mode -> normal journey and an
+unsupported mixed-mode startup failure. Safe Mode suppresses an explicit local extension's
+content script/background worker, Chromium's restart request and pinned/startup restoration.
+It retains the prior session/tab/app file inventory/hashes, saved startup/extension/pinned-tab
+configuration, local identity cookies/session storage and prior exit marker. The normal control
+and return launches restore the saved tab and run the extension again.
+This fixture deliberately replays `--load-extension` and `--restore-last-session`; it is not
+proof of native extension installation, saved-extension autoload UI or installed chooser use.
+Fixture diagnostics were corrected against Chromium's actual temporary command-line/CDP
+extension behavior rather than claiming those loads persist across a restart.
+
+The same smoke retains branding, unavailable Google-service settings/backend checks, local
+controls, repeat import, downloads/PDF/history/Incognito, rejected self-signed TLS, trusted
+HTTPS, a cross-origin out-of-process iframe and **six owned sandboxed renderers**. It records
+zero Google-service URL requests during its bounded 30-second idle plus browsing sequence.
+Rust/native checks include the actual AppKit controls and bundled production runtime in an
+isolated HOME with no developer tools on PATH; their browser process is synthetic.
+Formatting, Clippy, dependency audit, source settings/import fixtures and eight Grit branding
+tests pass. No existing tests were removed.
+
+Fresh official Mac Stable/source provenance was rechecked after compilation at
+**2026-11-13T17:43:24Z** and still matched **158.0.8127.37** /
+`b8c2be851f62f6a394ec57955d7f31335d7cb6d4`. Re-query before any publication.
+This is source/browser evidence, not a new preview: no package, release, installation or merge
+is authorized or performed here. Physical keyboard/screen-reader, installed native workflows,
+clean-Mac, authorized N-to-N+1, licensing/disclosure and broader Phase 1/#4/#6/#7/#8 gates remain open.
+
+## Publication
+
+Stainless source is licensed under [Apache-2.0](../LICENSE) and vulnerability reports follow
+the [security policy](../SECURITY.md). The publisher refuses packages whose `LICENSE` is
+missing or differs from the source revision, or a source revision without `SECURITY.md`.
+Passing fresh Stable provenance remains required.
+
+Releases are hybrid and maintainer-only: [`scripts/release.sh`](../scripts/release.sh)
+builds and packages the exact merged source on a dedicated build host, stages a **draft**
+prerelease and pushes its annotated tag; the tag-triggered
+[release workflow](../.github/workflows/release.yml) re-verifies the draft on a hosted runner
+and publishes it. The [release guide](releasing.md) covers requirements, versions, recovery
+and the trust boundary:
+
+```sh
+./scripts/release.sh --dry-run 0.1.0-preview.9
+./scripts/release.sh --isolated-host 0.1.0-preview.9
+```
+
+The underlying commands remain available. A dirty-source package cannot be published, and a
+recent `cargo-audit` plus authenticated `gh` with release-write access are required on the
+build host only:
+
+```sh
+./tools/stainless publish dist/0.1.0-preview.8          # verify, then upload a draft
+./tools/stainless verify-release DOWNLOADED_ASSETS_DIR  # what release CI runs
+```
+
+`publish` verifies final hashes, the packaged license, source identity, current Chromium
+stable and dependency advisories, then uploads every asset to a draft prerelease targeting the
+packaged revision. It never replaces an existing release and does not publish the draft:
+release CI does that after `verify-release` passes on the downloaded assets for the tagged
+commit. Publisher credentials are never bundled or copied into the updater.
+
+Candidate publication is not a Phase 1 completion claim. Record actual download/install,
+N-to-N+1 and failure-recovery evidence in the epic before declaring the phase shipped.
+Source/native CI does not satisfy those installed-release checks.
+
+The updater's opt-in artifact tests exercise real release ZIPs, native app exchange and
+profile backup/recovery using only synthetic data:
+
+```sh
+STAINLESS_TEST_PREVIOUS_PACKAGE_DIR="$PWD/dist/0.1.0-preview.1" \
+STAINLESS_TEST_PACKAGE_DIR="$PWD/dist/0.1.0-preview.2" \
+  cargo test --locked -p stainless-updater --test release_payload -- \
+    --ignored --test-threads=1
+```
+
+These tests inject startup success/failure signals explicitly. They do not claim a real
+network download, native browser restart or user-configured private authorization.
+
+The ordinary Rust suite also exercises the production HTTPS discovery/download client through
+a loopback-only synthetic GitHub proxy. It generates an ephemeral CA/certificate using the
+existing macOS OpenSSL and system Python, trusts that CA only in the individual test client,
+and never reads Keychain or real credentials:
+
+```sh
+cargo test --locked -p stainless-updater network::tests
+```
+
+Coverage includes scoped synthetic authorization, cross-origin credential removal, TLS and
+redirect rejection, offline/denied access, metadata size boundaries, malformed/incompatible
+feeds, interrupted/oversized downloads and hash rejection without app/profile changes.
+The production updater gains no alternate feed, certificate override or test mode.
+These fixtures are not real private-release or clean-host evidence. Follow the
+[installed-update verification procedure](update-verification.md) for those gates.

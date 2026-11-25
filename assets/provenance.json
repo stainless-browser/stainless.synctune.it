@@ -1,0 +1,45 @@
+{
+  "description": "Web-sized exports of the Stainless app artwork at the commit pinned in vendor/stainless/SOURCE.json. The artwork comes from stainless-browser/stainless (Apache License 2.0, Synctune Open).",
+  "files": {
+    "favicon-32.png": {
+      "source": "chromium/branding/stainless-icon.png",
+      "sourceSha256": "02f09314c481d3c00a64eea093480856ef54c69080b29747fd0e9f133a8b068f",
+      "export": "sips -s format png -Z 32",
+      "width": 32,
+      "height": 32,
+      "sha256": "37dbef61e8b3a6d7cb83c4b953f2b35bef5154909221b6f2a8ac84c66b6ae938"
+    },
+    "apple-touch-icon.png": {
+      "source": "chromium/branding/stainless-icon.png",
+      "sourceSha256": "02f09314c481d3c00a64eea093480856ef54c69080b29747fd0e9f133a8b068f",
+      "export": "sips -s format png -Z 180",
+      "width": 180,
+      "height": 180,
+      "sha256": "c70e425535ad29d855a154aaa2779e006442852d83f915faeb7f2689a4409b6b"
+    },
+    "stainless-icon-64.png": {
+      "source": "chromium/branding/stainless-icon.png",
+      "sourceSha256": "02f09314c481d3c00a64eea093480856ef54c69080b29747fd0e9f133a8b068f",
+      "export": "sips -s format png -Z 64",
+      "width": 64,
+      "height": 64,
+      "sha256": "f6c3bb013a8c6e9863b390d276a24065260c7920e004e3977030d41ffd394107"
+    },
+    "stainless-icon-512.png": {
+      "source": "chromium/branding/stainless-icon.png",
+      "sourceSha256": "02f09314c481d3c00a64eea093480856ef54c69080b29747fd0e9f133a8b068f",
+      "export": "sips -s format png -Z 512",
+      "width": 512,
+      "height": 512,
+      "sha256": "226ed4e0c1741a9bf29fbae9946f567c81c730cde56ca859b4a99cb0f18edba2"
+    },
+    "stainless-logo-640.webp": {
+      "source": "chromium/branding/stainless-logo.png",
+      "sourceSha256": "72b3811c9ef5a9c140ee550ca6150b6de491f0487ab0de214e24d9d2771e5916",
+      "export": "sips -s format png -Z 640, then cwebp -q 85 -alpha_q 100 -metadata none",
+      "width": 640,
+      "height": 640,
+      "sha256": "7b42da1d1f221499761a05739a5fdee6a54ebc7fdb471f9b96242336177203c3"
+    }
+  }
+}
