@@ -1,0 +1,133 @@
+<section class="hero" aria-labelledby="hero-title">
+<div class="container hero-inner">
+<div class="hero-copy">
+<p class="eyebrow">Preview for Apple Silicon Macs</p>
+<h1 id="hero-title">Stainless</h1>
+<p class="lead">A free, Chromium-based browser for developers, agent builders and privacy-conscious people.</p>
+<p>Real Chromium, built from a pinned source revision with Google's built-in services removed and an opt-in updater. The goal: use the web without ads, sponsored placements, behavioral tracking or a mandatory account.</p>
+<div class="actions">
+<a class="button button-primary" href="https://github.com/stainless-browser/stainless/releases">Download a preview</a>
+<a class="button button-secondary" href="docs/install-macos/">Read the install guide</a>
+</div>
+<p class="fine-print">Previews are unsigned, unnotarized prereleases for macOS 13 or newer. Only macOS 26.6 has been verified. <a href="docs/status/">See project status</a>.</p>
+</div>
+<img class="hero-logo" src="assets/stainless-logo-640.webp" width="320" height="320" alt="The Stainless logo: a brushed-steel S with a teal edge">
+</div>
+</section>
+
+<section class="section" id="why" aria-labelledby="why-title">
+<div class="container">
+<h2 id="why-title">Why Stainless</h2>
+<ul class="cards">
+<li class="card">
+<h3>Real Chromium, not a wrapper</h3>
+<p>Stainless builds Chromium's full <code>chrome</code> target from a pinned revision. It isn't Electron, a system WebView or a rebranded binary, and it keeps Chromium's sandboxing, site isolation and certificate validation.</p>
+</li>
+<li class="card">
+<h3>No Google services built in</h3>
+<p>Sign-in, sync, Safe Browsing and other Google-backed services are removed. Search falls back to DuckDuckGo until you pick a provider, metrics consent is forced off and Stainless adds no telemetry endpoint.</p>
+</li>
+<li class="card">
+<h3>Separate from Chrome</h3>
+<p>Stainless has its own app identity, profile folder and Keychain items, and never imports Chrome or Chromium data implicitly.</p>
+</li>
+<li class="card">
+<h3>Auditable</h3>
+<p>The Chromium revision, toolchains and every downstream patch are pinned and reviewable in the open. Each package ships build manifests, checksums and third-party notices.</p>
+</li>
+</ul>
+</div>
+</section>
+
+<section class="section section-alt" id="features" aria-labelledby="features-title">
+<div class="container split">
+<div>
+<h2 id="features-title">In the newest preview</h2>
+<ul class="checklist">
+<li>Everyday Chromium browsing: tabs and windows, bookmarks, history, find and zoom, downloads, print and PDF, settings, Incognito and DevTools.</li>
+<li>Built-in Google services removed, with the <a href="docs/degoogling/">gaps documented</a>.</li>
+<li>On-device <a href="docs/threat-protection/">threat-list blocking and opt-in password breach checks</a>.</li>
+<li>A separate Stainless profile and Keychain identity, plus <a href="docs/profile-isolation/">managed Standard, Incognito and memory-only Guest profiles</a> with backup, restore and startup Safe Mode.</li>
+<li>Opt-in automatic updates with hash verification and failed-launch rollback.</li>
+<li>A command palette (<kbd>Command</kbd>+<kbd>Shift</kbd>+<kbd>P</kbd>), a keyboard shortcut editor and <a href="docs/keymaps/">portable keymaps</a>.</li>
+<li>A read-only <a href="docs/resource-overview/">resource overview</a>, <a href="docs/history-privacy/">local-only saved history</a> and <a href="docs/internal-urls/"><code>stainless://</code> addresses</a>.</li>
+<li>Experimental, opt-in <a href="docs/web-push-self-hosting/">self-hosted Web Push</a> and <a href="docs/local-services/">local services</a> for translation, speech, captions and OCR.</li>
+</ul>
+</div>
+<div>
+<h2 id="tradeoffs-title">Know the tradeoffs</h2>
+<ul class="notes">
+<li>Previews are unsigned, unnotarized, Apple Silicon only and still in Phase 1 verification.</li>
+<li>Google Safe Browsing and Google's password-leak checks are removed. Threat lists block known dangerous domains, but can't scan downloads or recognize new dangerous pages.</li>
+<li>Automatic updates trust HTTPS and GitHub, not signed update metadata.</li>
+<li>Widevine and proprietary codecs aren't included.</li>
+<li>Removing Google services isn't a complete privacy product. Encrypted profiles, privacy containers, fingerprint protection and Tor are later roadmap work.</li>
+</ul>
+<p><a href="docs/degoogling/">Read about feature availability</a> before relying on Stainless.</p>
+</div>
+</div>
+</section>
+
+<section class="section" id="install" aria-labelledby="install-title">
+<div class="container split">
+<div>
+<h2 id="install-title">Install a preview</h2>
+<ol class="steps">
+<li>From <a href="https://github.com/stainless-browser/stainless/releases">Releases</a>, download the newest <code>Stainless-VERSION-macos-arm64.dmg</code> and its <code>SHA256SUMS</code>.</li>
+<li>Compare the image's hash with its <code>SHA256SUMS</code> entry:
+<pre class="code"><code>shasum -a 256 Stainless-VERSION-macos-arm64.dmg</code></pre></li>
+<li>Open the image, drag <strong>Stainless</strong> to <strong>Applications</strong>, eject the image and launch Stainless from Applications.</li>
+<li>If macOS blocks the first launch because the app isn't notarized and your hash matched, try to open it once, then go to <strong>System Settings &gt; Privacy &amp; Security</strong> and click <strong>Open Anyway</strong>. Never disable Gatekeeper, and don't open an app that macOS reports as damaged or malware.</li>
+</ol>
+<p>Updates, backups, recovery and removal are covered in the <a href="docs/install-macos/">macOS install guide</a>.</p>
+</div>
+<div id="build">
+<h2 id="build-title">Build from source</h2>
+<p>You need an Apple Silicon Mac with full Xcode 26.6 or newer, the macOS 26.5 SDK or newer, an APFS volume, 16 GiB of memory (32 GiB recommended) and at least 100 GiB of free disk. No paid Apple account or signing credential is required.</p>
+<pre class="code"><code>git clone https://github.com/stainless-browser/stainless.git
+cd stainless
+./tools/stainless doctor
+./tools/stainless bootstrap
+./tools/stainless build</code></pre>
+<p><code>doctor</code> checks the Mac, Xcode, SDK, Rust, memory and disk. <code>bootstrap</code> fetches the pinned Chromium and applies the patches, which can take hours. <code>build</code> builds Chromium, ChromeDriver and the updater.</p>
+<p><code>build</code>, <code>test</code> and <code>package</code> launch native macOS processes, so run them only on a <a href="docs/build-macos/#native-macos-gui-test-isolation">dedicated macOS test host or VM</a>. The <a href="docs/build-macos/">build guide</a> has the details.</p>
+</div>
+</div>
+</section>
+
+<section class="section section-alt" id="roadmap" aria-labelledby="roadmap-title">
+<div class="container">
+<h2 id="roadmap-title">Where Stainless is going</h2>
+<p class="section-lead">Stainless is a work in progress. Today it's the real Chromium browser for Apple Silicon Macs. Identities, privacy controls, local AI and auditable agents arrive in later phases, and Linux and Windows are later targets.</p>
+<ul class="link-list">
+<li><a href="docs/roadmap/">Roadmap</a>: delivery phases, decisions and non-goals.</li>
+<li><a href="docs/status/">Project status</a>: what each preview includes and which release gates are open.</li>
+<li><a href="docs/phase-one/">Phase 1 contract</a>: the baseline architecture and release evidence.</li>
+</ul>
+</div>
+</section>
+
+<section class="section" id="contribute" aria-labelledby="contribute-title">
+<div class="container">
+<h2 id="contribute-title">Get involved</h2>
+<p class="section-lead">Contributions are welcome. Stainless has a single maintainer, and you're responsible for everything you contribute, including AI-assisted code, docs and assets.</p>
+<ul class="cards">
+<li class="card">
+<h3><a href="docs/contributing/">Contribute</a></h3>
+<p>Set up, find work, run the checks and open a pull request.</p>
+</li>
+<li class="card">
+<h3><a href="docs/security/">Report a vulnerability</a></h3>
+<p>Report privately through GitHub, never in public issues.</p>
+</li>
+<li class="card">
+<h3><a href="docs/accessibility/">Accessibility</a></h3>
+<p>Targets for contributions, known limitations and how to report a barrier.</p>
+</li>
+<li class="card">
+<h3><a href="docs/code-of-conduct/">Code of Conduct</a></h3>
+<p>Everyone taking part follows the Contributor Covenant.</p>
+</li>
+</ul>
+</div>
+</section>
